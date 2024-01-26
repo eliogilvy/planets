@@ -1,11 +1,14 @@
-use bevy::{prelude::*, sprite::MaterialMesh2dBundle};
+use bevy::{prelude::*, sprite::MaterialMesh2dBundle, ecs::world};
 
-const SUN: Vec3 = Vec3::new(75., 75., 0.);
-const PLANET: Vec3 = Vec3::new(30., 30., 0.);
+// A program to simulate F = G (m1m2/r**2)
+
+// Planetery sizes
+const SUN_SIZE: Vec3 = Vec3::new(75., 75., 0.);
+const PLANET_SIZE: Vec3 = Vec3::new(30., 30., 0.);
 
 // Atomic units in meters
 const AU: f32 = 149.6e6 * 1000.;
-// Gravity
+// Gravity (G)
 const GRAVITY: f32 = 6.67428e-11;
 // For scaling
 const SCALE: f32 = 250. / AU;
@@ -38,6 +41,7 @@ struct SpaceObjectBundle {
     material2d: MaterialMesh2dBundle<ColorMaterial>,
 }
 
+// An space object, either sun or planet, should have a mass and velocity
 impl SpaceObjectBundle {
     fn new(
         mass: Mass,
@@ -56,7 +60,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, (spawn_camera, spawn_planets))
-        .add_systems(FixedUpdate, (apply_gravity).chain())
+        .add_systems(FixedUpdate, (apply_gravity, update_planets).chain())
         .run();
 }
 
@@ -78,7 +82,7 @@ fn spawn_planets(
             MaterialMesh2dBundle {
                 mesh: meshes.add(shape::Circle::default().into()).into(),
                 material: materials.add(ColorMaterial::from(Color::ORANGE_RED)),
-                transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(SUN),
+                transform: Transform::from_translation(Vec3::new(0., 0., 0.)).with_scale(SUN_SIZE),
                 ..default()
             },
         ),
@@ -94,7 +98,7 @@ fn spawn_planets(
                 mesh: meshes.add(shape::Circle::default().into()).into(),
                 material: materials.add(ColorMaterial::from(Color::BLUE)),
                 transform: Transform::from_translation(Vec3::new(-1. * AU * SCALE, 0., 0.))
-                    .with_scale(PLANET),
+                    .with_scale(PLANET_SIZE),
                 ..default()
             },
         ),
@@ -111,19 +115,24 @@ fn apply_gravity(
         let distance_y = sun_transform.translation.y - planet_transform.translation.y;
         let distance = (distance_x.powi(2) + distance_y.powi(2)).sqrt();
 
-        let force = GRAVITY * MASS_OF_SUN * (planet_mass.0 / distance.powi(2));
+        // F = G (m1m2/r**2)
+        let force = GRAVITY * (MASS_OF_SUN * planet_mass.0) / distance.powi(2);
 
         let theta = distance_y.atan2(distance_x);
         let force_x = theta.cos() * force;
         let force_y = theta.sin() * force;
         let total_force = force_x + force_y;
 
-        // planet_velocity.x += force_x / planet_mass.0 * TIMESTEP;
-        // planet_velocity.y += force_y / planet_mass.0 * TIMESTEP;
-
-        // planet_transform.translation.x += planet_velocity.x * TIMESTEP * SCALE;
-        // planet_transform.translation.y += planet_velocity.y * TIMESTEP * SCALE;
+        planet_velocity.x += force_x / planet_mass.0 * TIMESTEP;
+        planet_velocity.y += force_y / planet_mass.0 * TIMESTEP;
     }
 }
 
-// fn movement(mut planet_query: Query<(&mut Transform, &mut Gravity), With<Planet>>) {}
+fn update_planets(
+    mut planet_query: Query<(&mut Transform, &Velocity), (With<Planet>, Without<Star>)>,
+) {
+    for (mut planet_transform, planet_velocity) in planet_query.iter_mut() {
+        planet_transform.translation.x = planet_transform.translation.x * SCALE + 800. / 2.;
+        // planet_transform.translation.y = planet_transform.translation.y + planet_velocity.y * SCALE + 800. / 2.;
+    }
+}
