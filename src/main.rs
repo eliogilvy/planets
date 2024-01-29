@@ -1,4 +1,8 @@
-use bevy::{prelude::*, render::camera::ScalingMode, sprite::MaterialMesh2dBundle};
+use bevy::{
+    input::mouse::{MouseScrollUnit, MouseWheel},
+    prelude::*,
+    sprite::MaterialMesh2dBundle,
+};
 
 // A program to simulate F = G (m1m2/r**2)
 
@@ -163,34 +167,58 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, (spawn_camera, spawn_planets))
-        .add_systems(FixedUpdate, zoom_control)
+        .add_systems(FixedUpdate, (zoom_control, handle_click))
         .add_systems(FixedUpdate, (apply_gravity, update_planets).chain())
         .run();
 }
 
 fn spawn_camera(mut commands: Commands) {
     let mut camera = Camera2dBundle::default();
-    camera.projection.near = -5000.;
-    camera.projection.far = 5000.;
-    camera.projection.scale = 2.;
 
-    // camera.projection.scaling_mode = ScalingMode::
+    camera.projection.scale = 3.0;
     commands.spawn((camera, MainCamera));
 }
 
+fn handle_click(
+    // mut mouse_location: 
+    input: ResMut<Input<MouseButton>>,
+    planet_query: Query<&Transform, With<Planet>>,
+    mut camera_query: Query<&mut OrthographicProjection, With<MainCamera>>,
+) {
+    let mut camera = camera_query.single_mut();
+    if input.just_pressed(MouseButton::Left) {
+        for transform in planet_query.iter() {
+            // if 
+            println!("Clicked");
+        }
+    }
+}
+
 fn zoom_control(
-    input: ResMut<Input<KeyCode>>,
+    mut scroll: EventReader<MouseWheel>,
     mut camera_query: Query<&mut OrthographicProjection, With<MainCamera>>,
 ) {
     let mut projection = camera_query.single_mut();
 
-    if input.pressed(KeyCode::Up) {
-        // Zoom in
-        projection.scale /= 1.25;
-    }
-    if input.pressed(KeyCode::Down) {
-        // Zoom in
-        projection.scale *= 1.25;
+    for ev in scroll.read() {
+        match ev.unit {
+            MouseScrollUnit::Line => {
+                if ev.y == -1. {
+                    projection.scale *= 1.25;
+                }
+                else if ev.y == 1. {
+                    projection.scale /= 1.25;
+                }
+            }
+            MouseScrollUnit::Pixel => {
+                if ev.y == -1. {
+                    projection.scale *= 1.25;
+                }
+                else if ev.y == 1. {
+                    projection.scale /= 1.25;
+                }
+            }
+        }
     }
 }
 
@@ -328,7 +356,8 @@ fn spawn_planets(
         ));
     }
 }
-//todo
+
+// Runs the f = G * M1 * M2 / d * d
 fn apply_gravity(
     mut planet_query: Query<(Entity, &mut Position, &mut Velocity, &Mass), With<Planet>>,
 ) {
@@ -384,6 +413,8 @@ fn calculate_force(
 
     (force_x, force_y)
 }
+
+// Update planet positions after force has been applied
 fn update_planets(mut planet_query: Query<(&mut Transform, &mut Position), With<Planet>>) {
     for (mut transform, position) in planet_query.iter_mut() {
         transform.translation.x = (position.x * SCALE) as f32;
