@@ -1,7 +1,9 @@
+use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::{
-    input::mouse::{MouseScrollUnit, MouseWheel},
+    input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
     prelude::*,
     sprite::MaterialMesh2dBundle,
+    window::{PrimaryWindow, WindowMode},
 };
 
 // A program to simulate F = G (m1m2/r**2)
@@ -111,6 +113,12 @@ const MASS_OF_SATURN: f64 = 568e24;
 const MASS_OF_URANUS: f64 = 86.8e24;
 const MASS_OF_NEPTUNE: f64 = 102e24;
 
+// Mouse sensitivity
+const MOUSE_SENSITIVITY: f32 = 1.25;
+
+#[derive(Resource, Default)]
+struct SpaceCoords(Vec2);
+
 #[derive(Component)]
 struct Planet;
 
@@ -164,57 +172,88 @@ impl SpaceObjectBundle {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin::default()))
         .insert_resource(ClearColor(Color::BLACK))
-        .add_systems(Startup, (spawn_camera, spawn_planets))
-        .add_systems(FixedUpdate, (zoom_control, handle_click))
+        .init_resource::<SpaceCoords>()
+        .add_systems(Startup, (setup_window, spawn_camera, spawn_planets))
+        .add_systems(FixedUpdate, (zoom_control, handle_camera_pan))
         .add_systems(FixedUpdate, (apply_gravity, update_planets).chain())
+        .add_systems(Update, bevy::window::close_on_esc)
         .run();
 }
 
+fn setup_window(mut window_query: Query<&mut Window, With<PrimaryWindow>>) {
+    let mut window = window_query.single_mut();
+    window.mode = WindowMode::Fullscreen;
+}
+
+// Spawn relevant cameras
 fn spawn_camera(mut commands: Commands) {
     let mut camera = Camera2dBundle::default();
 
-    camera.projection.scale = 3.0;
+    // Initial scale
+    camera.projection.scale = 2.;
     commands.spawn((camera, MainCamera));
 }
 
-fn handle_click(
-    // mut mouse_location: 
+// Handles dragging the cursor while clicking
+fn handle_camera_pan(
+    mut planet_coords: ResMut<SpaceCoords>,
+    mut mouse_location: EventReader<MouseMotion>,
     input: ResMut<Input<MouseButton>>,
-    planet_query: Query<&Transform, With<Planet>>,
-    mut camera_query: Query<&mut OrthographicProjection, With<MainCamera>>,
+    planet_query: Query<&Transform, (With<Planet>, Without<MainCamera>)>,
+    mut camera_query: Query<(&Camera, &GlobalTransform, &mut Transform), With<MainCamera>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
 ) {
-    let mut camera = camera_query.single_mut();
-    if input.just_pressed(MouseButton::Left) {
-        for transform in planet_query.iter() {
-            // if 
-            println!("Clicked");
+    let (camera, camera_global_transform, mut camera_transform) = camera_query.single_mut();
+    let window = window_query.single();
+
+    // Pan camera while right clicking
+    if input.pressed(MouseButton::Right) {
+        for ml in mouse_location.read() {
+            camera_transform.translation.x -= ml.delta.x * MOUSE_SENSITIVITY;
+            camera_transform.translation.y += ml.delta.y * MOUSE_SENSITIVITY;
         }
     }
+
+    if input.just_pressed(MouseButton::Right) {
+        // for ml in mouse_location.read() {
+        if let Some(position) = window
+            .cursor_position()
+            .and_then(|cursor| camera.viewport_to_world(camera_global_transform, cursor))
+            .map(|ray| ray.origin.truncate())
+        {
+            planet_coords.0 = position;
+            camera_transform.translation.x = planet_coords.0.x;
+            camera_transform.translation.y = planet_coords.0.y;
+        }
+        // }
+    }
+
+    
 }
 
+// To zoom in and out
 fn zoom_control(
     mut scroll: EventReader<MouseWheel>,
     mut camera_query: Query<&mut OrthographicProjection, With<MainCamera>>,
 ) {
     let mut projection = camera_query.single_mut();
 
+    // 1 for zoom in, -1 for zoom out
     for ev in scroll.read() {
         match ev.unit {
             MouseScrollUnit::Line => {
                 if ev.y == -1. {
-                    projection.scale *= 1.25;
-                }
-                else if ev.y == 1. {
-                    projection.scale /= 1.25;
+                    projection.scale *= MOUSE_SENSITIVITY;
+                } else if ev.y == 1. {
+                    projection.scale /= MOUSE_SENSITIVITY;
                 }
             }
             MouseScrollUnit::Pixel => {
                 if ev.y == -1. {
                     projection.scale *= 1.25;
-                }
-                else if ev.y == 1. {
+                } else if ev.y == 1. {
                     projection.scale /= 1.25;
                 }
             }
