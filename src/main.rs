@@ -1,4 +1,8 @@
-use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+use std::default;
+
+use bevy::diagnostic::{self, DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::input::mouse::MouseButtonInput;
+use bevy::input::ButtonState;
 use bevy::{
     input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
     prelude::*,
@@ -114,10 +118,17 @@ const MASS_OF_URANUS: f64 = 86.8e24;
 const MASS_OF_NEPTUNE: f64 = 102e24;
 
 // Mouse sensitivity
-const MOUSE_SENSITIVITY: f32 = 1.25;
+const MOUSE_SENSITIVITY: f32 = 1.5;
 
-#[derive(Resource, Default)]
-struct SpaceCoords(Vec2);
+// Diagnostics
+
+/// Fps marker
+#[derive(Component)]
+struct FpsRoot;
+
+/// Fps text marker
+#[derive(Component)]
+struct FpsText;
 
 #[derive(Component)]
 struct Planet;
@@ -174,17 +185,99 @@ fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin::default()))
         .insert_resource(ClearColor(Color::BLACK))
-        .init_resource::<SpaceCoords>()
-        .add_systems(Startup, (setup_window, spawn_camera, spawn_planets))
+        .add_systems(
+            Startup,
+            (setup_window, spawn_camera, setup_fps, spawn_planets),
+        )
         .add_systems(FixedUpdate, (zoom_control, handle_camera_pan))
-        .add_systems(FixedUpdate, (apply_gravity, update_planets).chain())
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(FixedUpdate, (apply_gravity, update_planets))
+        .add_systems(Update, (update_fps, bevy::window::close_on_esc))
         .run();
 }
 
+// Window setup
 fn setup_window(mut window_query: Query<&mut Window, With<PrimaryWindow>>) {
     let mut window = window_query.single_mut();
     window.mode = WindowMode::Fullscreen;
+}
+
+// Setup Fps counter
+fn setup_fps(mut commands: Commands) {
+    let fps_bundle = (
+        FpsRoot,
+        NodeBundle {
+            background_color: BackgroundColor(Color::BLACK.with_a(0.5)),
+            z_index: ZIndex::Global(i32::MAX),
+            style: Style {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(1.),
+                top: Val::Percent(1.),
+                bottom: Val::Auto,
+                right: Val::Auto,
+                padding: UiRect::all(Val::Px(4.)),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let text_fps_bundle = (
+        FpsText,
+        TextBundle {
+            // use two sections, so it is easy to update just the number
+            text: Text::from_sections([
+                TextSection {
+                    value: "FPS: ".into(),
+                    style: TextStyle {
+                        font_size: 16.0,
+                        color: Color::WHITE,
+                        // if you want to use your game's font asset,
+                        // uncomment this and provide the handle:
+                        // font: my_font_handle
+                        ..default()
+                    },
+                },
+                TextSection {
+                    value: " N/A".into(),
+                    style: TextStyle {
+                        font_size: 16.0,
+                        color: Color::WHITE,
+                        // if you want to use your game's font asset,
+                        // uncomment this and provide the handle:
+                        // font: my_font_handle
+                        ..default()
+                    },
+                },
+            ]),
+            ..Default::default()
+        },
+    );
+
+    let root = commands.spawn(fps_bundle).id();
+    let text_fps = commands.spawn(text_fps_bundle).id();
+
+    commands.entity(root).push_children(&[text_fps]);
+}
+
+// Update the fps
+fn update_fps(diagnostics: Res<DiagnosticsStore>, mut fps_query: Query<&mut Text, With<FpsText>>) {
+    for mut fps in &mut fps_query {
+        if let Some(value) = diagnostics
+            .get(FrameTimeDiagnosticsPlugin::FPS)
+            .and_then(|fps| fps.smoothed())
+        {
+            fps.sections[1].value = format!("{value:>4.0}");
+
+            fps.sections[1].style.color = if value >= 60. {
+                Color::GREEN
+            } else {
+                Color::RED
+            } 
+        }
+        else {
+            fps.sections[1].value = "N/A".into();
+            fps.sections[1].style.color = Color::WHITE;
+        }
+    }
 }
 
 // Spawn relevant cameras
@@ -198,39 +291,19 @@ fn spawn_camera(mut commands: Commands) {
 
 // Handles dragging the cursor while clicking
 fn handle_camera_pan(
-    mut planet_coords: ResMut<SpaceCoords>,
     mut mouse_location: EventReader<MouseMotion>,
-    input: ResMut<Input<MouseButton>>,
-    planet_query: Query<&Transform, (With<Planet>, Without<MainCamera>)>,
-    mut camera_query: Query<(&Camera, &GlobalTransform, &mut Transform), With<MainCamera>>,
-    window_query: Query<&Window, With<PrimaryWindow>>,
+    input: Res<Input<MouseButton>>,
+    mut camera_query: Query<&mut Transform, With<MainCamera>>,
 ) {
-    let (camera, camera_global_transform, mut camera_transform) = camera_query.single_mut();
-    let window = window_query.single();
+    let mut camera_transform = camera_query.single_mut();
 
-    // Pan camera while right clicking
-    if input.pressed(MouseButton::Right) {
-        for ml in mouse_location.read() {
+    for ml in mouse_location.read() {
+        // Pan camera while right clicking
+        if input.pressed(MouseButton::Right) && !input.just_pressed(MouseButton::Right) {
             camera_transform.translation.x -= ml.delta.x * MOUSE_SENSITIVITY;
             camera_transform.translation.y += ml.delta.y * MOUSE_SENSITIVITY;
         }
     }
-
-    if input.just_pressed(MouseButton::Right) {
-        // for ml in mouse_location.read() {
-        if let Some(position) = window
-            .cursor_position()
-            .and_then(|cursor| camera.viewport_to_world(camera_global_transform, cursor))
-            .map(|ray| ray.origin.truncate())
-        {
-            planet_coords.0 = position;
-            camera_transform.translation.x = planet_coords.0.x;
-            camera_transform.translation.y = planet_coords.0.y;
-        }
-        // }
-    }
-
-    
 }
 
 // To zoom in and out
@@ -261,6 +334,7 @@ fn zoom_control(
     }
 }
 
+// Show the planets
 fn spawn_planets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -396,7 +470,7 @@ fn spawn_planets(
     }
 }
 
-// Runs the f = G * M1 * M2 / d * d
+// Runs f = G * M1 * M2 / d * d
 fn apply_gravity(
     mut planet_query: Query<(Entity, &mut Position, &mut Velocity, &Mass), With<Planet>>,
 ) {
