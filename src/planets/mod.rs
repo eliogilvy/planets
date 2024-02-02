@@ -7,7 +7,7 @@ impl Plugin for PlanetsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PlanetTrails(vec![]))
             .add_systems(Startup, spawn_planets)
-            .add_systems(Update, (apply_gravity, update_planets, draw));
+            .add_systems(Update, (apply_gravity, update_planets));
     }
 }
 
