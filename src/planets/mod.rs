@@ -13,7 +13,7 @@ pub struct PlanetsPlugin;
 impl Plugin for PlanetsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_planets)
-            .add_systems(Update, (apply_gravity, update_planets, draw_planet_trails));
+            .add_systems(Update, (apply_gravity, update_planets));
     }
 }
 

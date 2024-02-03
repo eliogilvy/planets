@@ -1,6 +1,8 @@
 use bevy::{
     input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
     prelude::*,
+    render::camera,
+    window::PrimaryWindow,
 };
 
 use crate::MOUSE_SENSITIVITY;
@@ -28,17 +30,33 @@ fn spawn_camera(mut commands: Commands) {
 
 // Handles dragging the cursor while clicking
 fn handle_camera_pan(
-    mut mouse_location: EventReader<MouseMotion>,
+    mut mouse_delta: EventReader<MouseMotion>,
     input: Res<Input<MouseButton>>,
     mut camera_query: Query<&mut Transform, With<MainCamera>>,
 ) {
     let mut camera_transform = camera_query.single_mut();
 
-    for ml in mouse_location.read() {
+    for md in mouse_delta.read() {
         // Pan camera while right clicking
         if input.pressed(MouseButton::Right) && !input.just_pressed(MouseButton::Right) {
-            camera_transform.translation.x -= ml.delta.x * MOUSE_SENSITIVITY;
-            camera_transform.translation.y += ml.delta.y * MOUSE_SENSITIVITY;
+            camera_transform.translation.x -= md.delta.x * MOUSE_SENSITIVITY;
+            camera_transform.translation.y += md.delta.y * MOUSE_SENSITIVITY;
+        }
+    }
+}
+
+// Handles clicking on a planet
+fn handle_clicking_planet(
+    window: Query<&Window, With<PrimaryWindow>>,
+    input: Res<Input<MouseButton>>,
+    mut camera_query: Query<&mut Transform, With<MainCamera>>,
+) {
+    let mut camera_transform = camera_query.single_mut();
+
+    if let Some(position) = window.single().cursor_position() {
+        if input.just_pressed(MouseButton::Left) {
+            camera_transform.translation.x = position.x;
+            camera_transform.translation.y = position.y;
         }
     }
 }
