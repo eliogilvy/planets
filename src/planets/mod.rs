@@ -1,13 +1,19 @@
-use bevy::{prelude::*, sprite::MaterialMesh2dBundle};
+use std::{default, f32::consts::PI};
+
+use bevy::{
+    gizmos,
+    prelude::*,
+    render::render_resource::PrimitiveTopology,
+    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
+};
 
 /// Everything to do with updating planet positions
 pub struct PlanetsPlugin;
 
 impl Plugin for PlanetsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(PlanetTrails(vec![]))
-            .add_systems(Startup, spawn_planets)
-            .add_systems(Update, (apply_gravity, update_planets));
+        app.add_systems(Startup, spawn_planets)
+            .add_systems(Update, (apply_gravity, update_planets, draw_planet_trails));
     }
 }
 
@@ -135,8 +141,33 @@ struct Velocity {
 #[derive(Resource)]
 struct PlanetTimer(Timer);
 
-#[derive(Resource)]
-struct PlanetTrails(Vec<Vec<Position>>);
+const MAX_TRAIL_SIZE: usize = 1000;
+
+#[derive(Component)]
+struct TrailMaterial;
+
+#[derive(Component)]
+struct PlanetTrail {
+    positions: Vec<Vec2>,
+}
+
+impl PlanetTrail {
+    fn default() -> Self {
+        PlanetTrail {
+            positions: Vec::new(),
+        }
+    }
+    // Manages adding a position and maintining certain size
+    fn add_position(&mut self, position: &Position) {
+        println!("{}", self.positions.len());
+        if self.positions.len() > MAX_TRAIL_SIZE {
+            self.positions.remove(0);
+        }
+        let x = position.x * SCALE;
+        let y = position.y * SCALE;
+        self.positions.push(Vec2::new(x as f32, y as f32));
+    }
+}
 
 #[derive(Bundle)]
 struct SpaceObjectBundle {
@@ -145,6 +176,7 @@ struct SpaceObjectBundle {
     velocity: Velocity,
     position: Position,
     material2d: MaterialMesh2dBundle<ColorMaterial>,
+    trail: PlanetTrail,
 }
 
 // An space object, either sun or planet, should have a mass and velocity
@@ -155,12 +187,16 @@ impl SpaceObjectBundle {
         position: Position,
         material2d: MaterialMesh2dBundle<ColorMaterial>,
     ) -> Self {
+        let mut positions: Vec<Position> = Vec::new();
+        positions.push(position);
+
         SpaceObjectBundle {
             planet: Planet,
             mass: mass,
             velocity: velocity,
             material2d: material2d,
             position: position,
+            trail: PlanetTrail::default(),
         }
     }
 }
@@ -173,8 +209,6 @@ fn spawn_planets(
 ) {
     // List of planets with their mass, velocity, position, and size
     let mut planet_list: Vec<(f64, Velocity, Position, Vec3, Color)> = Vec::new();
-
-    let mut planet_trails: PlanetTrails = PlanetTrails(vec![]);
 
     // Sun
     planet_list.push((
@@ -301,10 +335,7 @@ fn spawn_planets(
                 ..default()
             },
         ));
-        planet_trails.0.push(vec![]);
     }
-
-    commands.insert_resource(planet_trails);
 }
 
 // Runs f = G * M1 * M2 / d * d
@@ -366,28 +397,25 @@ fn calculate_force(
 
 // Update planet positions after force has been applied
 fn update_planets(
-    mut planet_query: Query<(&mut Transform, &mut Position), With<Planet>>,
-    mut planet_trails: ResMut<PlanetTrails>,
+    mut planet_query: Query<(&mut Transform, &Position, &mut PlanetTrail), With<Planet>>,
 ) {
-    let mut i = 0;
-    for (mut transform, position) in planet_query.iter_mut() {
+    for (mut transform, position, mut trail) in planet_query.iter_mut() {
         let x = position.x * SCALE;
         let y = position.y * SCALE;
         transform.translation.x = x as f32;
         transform.translation.y = y as f32;
-        planet_trails.0[i].push(Position { x, y });
-        i += 1;
+        trail.add_position(position);
     }
 }
 
-fn draw(planet_trails: Res<PlanetTrails>, mut gizmos: Gizmos) {
-    for trail in planet_trails.0.iter() {
-        for position in trail.iter() {
-            gizmos.line_2d(
-                Vec2::new(position.x as f32, position.y as f32),
-                Vec2::new(position.x as f32, position.y as f32),
-                Color::GREEN,
-            );
-        }
+fn draw_planet_trails(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    planet_trails: Query<&PlanetTrail, With<Planet>>,
+    mut gizmos: Gizmos,
+) {
+    for trail in planet_trails.iter() {
+        gizmos.linestrip_2d(trail.positions.clone(), Color::GREEN);
     }
 }
